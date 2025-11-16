@@ -247,77 +247,73 @@ def check_single_file(json_path: str) -> bool:
     return checker.print_report()
 
 
-def check_directory(directory: str, recursive: bool = False) -> Dict[str, bool]:
-    """检查目录中的所有JSON文件"""
+def check_directory(directory: str, recursive: bool = True) -> List[str]:
+    """检查目录中的所有JSON文件，返回有错误的文件名列表"""
     directory = Path(directory)
     if not directory.exists():
         print(f"错误: 目录不存在: {directory}")
-        return {}
+        return []
     
-    # 查找所有JSON文件
+    # 查找所有JSON文件（默认递归搜索）
     pattern = "**/*.json" if recursive else "*.json"
     json_files = list(directory.glob(pattern))
     
     if not json_files:
         print(f"在目录 {directory} 中未找到JSON文件")
-        return {}
+        return []
     
     print(f"找到 {len(json_files)} 个JSON文件，开始检查...\n")
     
-    results = {}
-    total_errors = 0
-    total_warnings = 0
-    passed_files = 0
+    error_files = []
+    file_errors = {}  # 存储每个文件的错误信息
     
     for json_file in sorted(json_files):
         checker = LabelmeChecker(str(json_file))
         errors, warnings = checker.check_all()
         
-        results[str(json_file)] = len(errors) == 0
-        total_errors += len(errors)
-        total_warnings += len(warnings)
-        
-        if len(errors) == 0:
-            passed_files += 1
-        
-        # 只显示有问题的文件
-        if errors or warnings:
-            checker.print_report()
+        # 如果有错误，记录文件名和错误信息
+        if errors:
+            filename = json_file.name
+            error_files.append(filename)
+            file_errors[filename] = errors
     
-    # 打印总结
-    print(f"\n{'='*60}")
-    print("检查总结")
-    print(f"{'='*60}")
-    print(f"总文件数: {len(json_files)}")
-    print(f"通过: {passed_files}")
-    print(f"失败: {len(json_files) - passed_files}")
-    print(f"总错误数: {total_errors}")
-    print(f"总警告数: {total_warnings}")
+    # 输出有错误的文件名和具体错误
+    if error_files:
+        print(f"\n发现 {len(error_files)} 个有错误的JSON文件:\n")
+        for filename in error_files:
+            print(f"{'='*60}")
+            print(f"文件: {filename}")
+            print(f"{'='*60}")
+            print(f"错误 ({len(file_errors[filename])} 个):")
+            for i, error in enumerate(file_errors[filename], 1):
+                print(f"  {i}. {error}")
+            print()
+    else:
+        print(f"\n✓ 所有 {len(json_files)} 个JSON文件检查通过，没有发现错误。")
+    
     print()
-    
-    return results
+    return error_files
 
 
 def main():
     """主函数"""
     if len(sys.argv) < 2:
         print("用法:")
+        print("  python check_json.py <directory>           # 检查目录中的所有JSON文件（递归搜索）")
+        print("  python check_json.py <directory> --no-recursive  # 只检查当前目录，不递归")
         print("  python check_json.py <json_file>           # 检查单个文件")
-        print("  python check_json.py <directory>           # 检查目录中的所有JSON文件")
-        print("  python check_json.py <directory> --recursive  # 递归检查目录")
         sys.exit(1)
     
     path = sys.argv[1]
-    recursive = "--recursive" in sys.argv or "-r" in sys.argv
+    recursive = "--no-recursive" not in sys.argv and "-n" not in sys.argv
     
     if os.path.isfile(path):
         success = check_single_file(path)
         sys.exit(0 if success else 1)
     elif os.path.isdir(path):
-        results = check_directory(path, recursive)
+        error_files = check_directory(path, recursive)
         # 如果有任何文件失败，返回非零退出码
-        all_passed = all(results.values())
-        sys.exit(0 if all_passed else 1)
+        sys.exit(0 if len(error_files) == 0 else 1)
     else:
         print(f"错误: 路径不存在: {path}")
         sys.exit(1)
