@@ -1,5 +1,36 @@
 # 消融实验指南：对比不同group_id提升策略
 
+## 实验环境准备
+
+### 数据路径配置
+
+**重要**：如果数据集和程序放在不同盘，需要修改配置文件中的数据路径：
+
+1. **数据集路径**：配置文件中的 `data_root` 需要指向data盘的数据集位置
+   - 默认配置：`data_root = '/data/coco_parallel'`
+   - 请根据实际data盘挂载路径修改（例如：`/mnt/data/coco_parallel`）
+
+2. **输出路径**：训练结果（模型、日志）会保存到 `work_dir` 指定的目录
+   - 项目输出目录：`/data/lxc/outputs/train_parallel_model/`
+   - 消融实验结果保存在：`/data/lxc/outputs/train_parallel_model/ablation_experiments/`
+   - 例如：`--work-dir /data/lxc/outputs/train_parallel_model/ablation_experiments/combined`
+
+### 多GPU训练
+
+如果使用多张GPU（例如4张显卡），请使用分布式训练脚本：
+
+```bash
+# 使用4张GPU训练
+bash tools/dist_train.sh \
+    configs/body_2d_keypoint/dekr/coco/dekr_hrnet-w32_parallel_ablation_combined.py \
+    4 \
+    --work-dir /data/work_dirs/ablation_experiments/combined
+```
+
+**注意**：
+- 4张GPU时，总batch size = 单卡batch_size × 4 = 12 × 4 = 48
+- 确保data盘有足够的空间存储训练输出（checkpoints、日志等）
+
 ## 实验目标
 
 对比三种策略对group_id=1（运动员）精度提升的效果：
@@ -44,21 +75,45 @@ bash tools/run_ablation_experiments.sh --exp combined
 
 ### 方法2：手动运行
 
+#### 单GPU训练
+
 ```bash
 # 实验1：仅损失权重
 python tools/train.py \
     configs/body_2d_keypoint/dekr/coco/dekr_hrnet-w32_parallel_ablation_loss_weight.py \
-    --work-dir work_dirs/ablation_experiments/loss_weight_only
+    --work-dir /data/lxc/outputs/train_parallel_model/ablation_experiments/loss_weight_only
 
 # 实验2：仅加权采样
 python tools/train.py \
     configs/body_2d_keypoint/dekr/coco/dekr_hrnet-w32_parallel_ablation_weighted_sampling.py \
-    --work-dir work_dirs/ablation_experiments/weighted_sampling_only
+    --work-dir /data/lxc/outputs/train_parallel_model/ablation_experiments/weighted_sampling_only
 
 # 实验3：组合使用
 python tools/train.py \
     configs/body_2d_keypoint/dekr/coco/dekr_hrnet-w32_parallel_ablation_combined.py \
-    --work-dir work_dirs/ablation_experiments/combined
+    --work-dir /data/lxc/outputs/train_parallel_model/ablation_experiments/combined
+```
+
+#### 多GPU训练（推荐，4张显卡）
+
+```bash
+# 实验1：仅损失权重（4张GPU）
+bash tools/dist_train.sh \
+    configs/body_2d_keypoint/dekr/coco/dekr_hrnet-w32_parallel_ablation_loss_weight.py \
+    4 \
+    --work-dir /data/lxc/outputs/train_parallel_model/ablation_experiments/loss_weight_only
+
+# 实验2：仅加权采样（4张GPU）
+bash tools/dist_train.sh \
+    configs/body_2d_keypoint/dekr/coco/dekr_hrnet-w32_parallel_ablation_weighted_sampling.py \
+    4 \
+    --work-dir /data/lxc/outputs/train_parallel_model/ablation_experiments/weighted_sampling_only
+
+# 实验3：组合使用（4张GPU）
+bash tools/dist_train.sh \
+    configs/body_2d_keypoint/dekr/coco/dekr_hrnet-w32_parallel_ablation_combined.py \
+    4 \
+    --work-dir /data/lxc/outputs/train_parallel_model/ablation_experiments/combined
 ```
 
 ## 实验结果对比
@@ -187,7 +242,7 @@ for name, path in experiments.items():
 使用tensorboard对比训练过程：
 
 ```bash
-tensorboard --logdir work_dirs/ablation_experiments
+tensorboard --logdir /data/lxc/outputs/train_parallel_model/ablation_experiments
 ```
 
 在tensorboard中可以对比：

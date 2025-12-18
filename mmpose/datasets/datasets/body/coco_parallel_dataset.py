@@ -129,6 +129,62 @@ class CocoParallelDataset(BaseCocoStyleDataset):
                 print(f'Warning: group_id_mapping_file not found: {group_id_mapping_path}')
         
         super().__init__(ann_file=ann_file, **kwargs)
+    
+    def load_data_list(self) -> List[dict]:
+        """Load data list from COCO annotation file with debugging."""
+        from mmengine.dist import get_dist_info
+        rank, world_size = get_dist_info()
+        import logging
+        logger = logging.getLogger('mmpose')
+        
+        logger.warning(
+            f'[Rank {rank}/{world_size}] CocoParallelDataset.load_data_list: Starting to load data. '
+            f'ann_file: {self.ann_file}, data_root: {self.data_root}'
+        )
+        
+        # Call parent method
+        data_list = super().load_data_list()
+        
+        logger.warning(
+            f'[Rank {rank}/{world_size}] CocoParallelDataset.load_data_list: Loaded {len(data_list)} samples'
+        )
+        
+        if len(data_list) == 0:
+            logger.error(
+                f'[Rank {rank}/{world_size}] ERROR: load_data_list returned empty list! '
+                f'This may indicate that all instances were filtered out by parse_data_info.'
+            )
+        
+        return data_list
+    
+    def _load_annotations(self):
+        """Load data from annotations with debugging."""
+        from mmengine.dist import get_dist_info
+        rank, world_size = get_dist_info()
+        import logging
+        logger = logging.getLogger('mmpose')
+        
+        logger.warning(
+            f'[Rank {rank}/{world_size}] CocoParallelDataset._load_annotations: Starting. '
+            f'ann_file: {self.ann_file}'
+        )
+        
+        # Call parent method
+        instance_list, image_list = super()._load_annotations()
+        
+        logger.warning(
+            f'[Rank {rank}/{world_size}] CocoParallelDataset._load_annotations: '
+            f'Loaded {len(instance_list)} instances, {len(image_list)} images'
+        )
+        
+        if len(instance_list) == 0:
+            logger.error(
+                f'[Rank {rank}/{world_size}] ERROR: instance_list is empty! '
+                f'This means parse_data_info returned None for all annotations. '
+                f'image_list size: {len(image_list)}'
+            )
+        
+        return instance_list, image_list
 
     def parse_data_info(self, raw_data_info: dict):
         """Parse raw COCO annotation and add group_id information."""
@@ -166,27 +222,70 @@ class CocoParallelDataset(BaseCocoStyleDataset):
     def _get_bottomup_data_infos(self, instance_list: List[Dict],
                                  image_list: List[Dict]) -> List[Dict]:
         """Organize the data list in bottom-up mode with sample weights."""
+        # Debug: log instance_list size (log from all ranks for debugging)
+        from mmengine.dist import get_dist_info
+        rank, world_size = get_dist_info()
+        import logging
+        logger = logging.getLogger('mmpose')
+        
+        logger.warning(
+            f'[Rank {rank}/{world_size}] CocoParallelDataset._get_bottomup_data_infos: '
+            f'instance_list size: {len(instance_list)}, image_list size: {len(image_list)}'
+        )
+        
+        if len(instance_list) == 0:
+            logger.error(
+                f'[Rank {rank}/{world_size}] ERROR: instance_list is empty! '
+                f'This means parse_data_info returned None for all instances. '
+                f'image_list size: {len(image_list)}'
+            )
+        
         # Call parent method first
         data_list_bu = super()._get_bottomup_data_infos(instance_list, image_list)
+        
+        # Debug: log data_list_bu size (log from all ranks)
+        logger.warning(
+            f'[Rank {rank}/{world_size}] CocoParallelDataset._get_bottomup_data_infos: '
+            f'data_list_bu size after parent call: {len(data_list_bu)}'
+        )
+        
+        if len(data_list_bu) == 0:
+            logger.error(
+                f'[Rank {rank}/{world_size}] ERROR: data_list_bu is empty after parent call! '
+                f'instance_list size: {len(instance_list)}, image_list size: {len(image_list)}'
+            )
         
         # Apply sample weights to instances in bottom-up mode
         # For bottom-up, we need to store sample_weight per instance
         # This will be used later in the pipeline to weight the loss
         for data_info_bu in data_list_bu:
             if 'id' in data_info_bu and isinstance(data_info_bu['id'], list):
-                # Get sample weights for each instance
+                # Get group_ids and sample weights for each instance
+                group_ids = []
                 instance_weights = []
                 for ann_id in data_info_bu['id']:
+                    # Try to get group_id from mapping file first
+                    group_id = None
                     if ann_id in self.group_id_mapping:
                         group_id = self.group_id_mapping[ann_id]
-                        if group_id in self.group_id_weight:
-                            instance_weights.append(self.group_id_weight[group_id])
-                        else:
-                            instance_weights.append(1.0)
+                    else:
+                        # Try to get from instance_list (if parse_data_info already set it)
+                        # Find the instance in instance_list
+                        for inst in instance_list:
+                            if inst.get('id') == ann_id:
+                                group_id = inst.get('group_id')
+                                break
+                    
+                    group_ids.append(group_id)
+                    
+                    # Calculate weight based on group_id
+                    if group_id is not None and group_id in self.group_id_weight:
+                        instance_weights.append(self.group_id_weight[group_id])
                     else:
                         instance_weights.append(1.0)
                 
-                # Store instance weights (will be used in pipeline)
+                # Store group_ids and instance weights (will be used in pipeline and sampler)
+                data_info_bu['group_id'] = group_ids  # List of group_ids for WeightedGroupSampler
                 data_info_bu['instance_weights'] = instance_weights
         
         return data_list_bu

@@ -1,13 +1,23 @@
 _base_ = ['../../../_base_/default_runtime.py']
 
+# 确保CocoParallelDataset被导入和注册
+custom_imports = dict(
+    imports=['mmpose.datasets.datasets.body.coco_parallel_dataset'],
+    allow_failed_imports=False)
+
 # ============================================================================
-# RTX 4500 Ada Generation (24GB显存) 优化配置
+# RTX 4060Ti (16GB显存) 优化配置
 # ============================================================================
 
 train_cfg = dict(max_epochs=140, val_interval=10)
 
-# 优化器配置 - 使用更大的学习率以匹配更大的batch size
-optim_wrapper = dict(optimizer=dict(type='Adam', lr=1e-3))
+# 优化器配置 - 使用梯度累积来保持有效batch size
+# batch_size=2, accumulative_counts=4 => 有效batch_size=8 (单卡)
+# 4卡训练时总有效batch_size=32
+optim_wrapper = dict(
+    optimizer=dict(type='Adam', lr=1e-3),
+    accumulative_counts=4  # 梯度累积4次，保持有效batch size
+)
 
 param_scheduler = [
     dict(
@@ -22,7 +32,8 @@ param_scheduler = [
         by_epoch=True)
 ]
 
-auto_scale_lr = dict(base_batch_size=80)
+# 自动学习率缩放 - 基于有效batch size (2*4*4=32)
+auto_scale_lr = dict(base_batch_size=32)
 
 default_hooks = dict(checkpoint=dict(save_best='coco/AP', rule='greater'))
 
@@ -106,7 +117,9 @@ find_unused_parameters = True
 
 dataset_type = 'CocoParallelDataset'
 data_mode = 'bottomup'
-data_root = 'data/coco_parallel'
+# 数据路径 - 使用data盘的绝对路径
+# 实际数据集路径：/data/lxc/datasets/coco_paralel
+data_root = '/data/lxc/datasets/coco_paralel'
 
 train_pipeline = [
     dict(type='LoadImage'),
@@ -133,11 +146,11 @@ val_pipeline = [
 ]
 
 # ============================================================================
-# 数据加载器配置 - 针对24GB显存优化
+# 数据加载器配置 - 针对16GB显存优化（RTX 4060Ti）
 # ============================================================================
 train_dataloader = dict(
-    batch_size=12,  # 24GB显存可以使用更大的batch size（约为6GB显存的6倍）
-    num_workers=8,  # 增加数据加载线程数以充分利用CPU
+    batch_size=2,  # 16GB显存下进一步减小batch，避免512x512底部模型OOM
+    num_workers=4,  # 减少数据加载线程数以降低内存占用
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
@@ -150,7 +163,7 @@ train_dataloader = dict(
     ))
 
 val_dataloader = dict(
-    batch_size=4,  # 验证时也可以使用更大的batch size
+    batch_size=2,
     num_workers=4,
     persistent_workers=True,
     drop_last=False,

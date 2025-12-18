@@ -1,5 +1,10 @@
 _base_ = ['dekr_hrnet-w32_parallel_rtx4500.py']
 
+# 确保CocoParallelDataset被导入和注册
+custom_imports = dict(
+    imports=['mmpose.datasets.datasets.body.coco_parallel_dataset'],
+    allow_failed_imports=False)
+
 # ============================================================================
 # 消融实验配置3：损失权重 + 加权采样组合（Combined）
 # ============================================================================
@@ -12,16 +17,42 @@ _base_ = ['dekr_hrnet-w32_parallel_rtx4500.py']
 # 注意：codec 和 val_pipeline 从 _base_ 配置继承
 # ============================================================================
 
-# 更新数据路径
-data_root = 'data/coco_parallel'
+# 更新数据路径 - 使用data盘的绝对路径
+# 实际数据集路径：/data/lxc/datasets/coco_paralel
+data_root = '/data/lxc/datasets/coco_paralel'
+
+# Codec配置 - 从_base_继承，需要显式定义以便在pipeline中使用
+codec = dict(
+    type='SPR',
+    input_size=(512, 512),
+    heatmap_size=(128, 128),
+    sigma=(4, 2),
+    minimal_diagonal_length=32**0.5,
+    generate_keypoint_heatmaps=True,
+    decode_max_instances=30)
+
+# 验证pipeline - 从_base_继承
+val_pipeline = [
+    dict(type='LoadImage'),
+    dict(
+        type='BottomupResize',
+        input_size=codec['input_size'],
+        size_factor=32,
+        resize_mode='expand'),
+    dict(
+        type='PackPoseInputs',
+        meta_keys=('id', 'img_id', 'img_path', 'crowd_index', 'ori_shape',
+                   'img_shape', 'input_size', 'input_center', 'input_scale',
+                   'flip', 'flip_direction', 'flip_indices', 'raw_ann_info',
+                   'skeleton_links'))
+]
 
 # 更新训练pipeline，添加ApplyGroupWeight
-# codec 从 _base_ 继承
 train_pipeline = [
     dict(type='LoadImage'),
-    dict(type='BottomupRandomAffine', input_size=codec['input_size']),  # noqa: F821
+    dict(type='BottomupRandomAffine', input_size=codec['input_size']),
     dict(type='RandomFlip', direction='horizontal'),
-    dict(type='GenerateTarget', encoder=codec),  # noqa: F821
+    dict(type='GenerateTarget', encoder=codec),
     dict(type='BottomupGetHeatmapMask'),
     dict(type='ApplyGroupWeight'),  # 应用group_id损失权重
     dict(type='PackPoseInputs'),
@@ -31,7 +62,7 @@ train_pipeline = [
 # 数据加载器配置 - 组合使用损失权重和加权采样
 # ============================================================================
 train_dataloader = dict(
-    batch_size=12,
+    batch_size=4,  # 减小batch_size以避免OOM（从12降到4）
     num_workers=8,
     persistent_workers=True,
     # 使用WeightedGroupSampler进行加权采样
@@ -52,7 +83,7 @@ train_dataloader = dict(
     ))
 
 val_dataloader = dict(
-    batch_size=4,
+    batch_size=1,  # DEKRHead只支持batch_size=1的预测
     num_workers=4,
     persistent_workers=True,
     drop_last=False,
@@ -65,7 +96,7 @@ val_dataloader = dict(
         data_prefix=dict(img='images/'),
         group_id_weight={},  # 验证时不使用权重
         test_mode=True,
-        pipeline=val_pipeline,  # noqa: F821
+        pipeline=val_pipeline,
     ))
 
 test_dataloader = val_dataloader
