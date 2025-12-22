@@ -16,7 +16,6 @@ chumpy
 json_tricks
 matplotlib
 munkres
-numpy
 opencv-python
 pillow
 scipy

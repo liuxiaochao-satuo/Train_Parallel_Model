@@ -1,0 +1,46 @@
+name: train_parallel_gpu
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  # ---- PyTorch + CUDA（使用自带 CUDA 运行时，避免依赖系统 CUDA 13）----
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.1
+  # ---- 基础科学计算 ----
+  - numpy
+  - scipy
+  - matplotlib
+  - pandas
+  # ---- 图像 / 视频处理 ----
+  - opencv
+  - pillow
+  # ---- OpenMMLab 运行时依赖 ----
+  - cython
+  - yaml
+  - tqdm
+  - psutil
+  - click
+  - rich
+  - addict
+  - yapf
+  - setuptools
+  - wheel
+  # ---- 通过 pip 安装的包 ----
+  - pip:
+      - openmim
+      # 安装 mmengine / mmcv / mmpose（版本与本项目兼容的常用组合）
+      - "mmengine>=0.10.0"
+      - "mmcv>=2.0.0"
+      - "mmpose>=1.3.0"
+      # 其他常用工具
+      - pycocotools
+      - tensorboard
+      - tqdm
+
+

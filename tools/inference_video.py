@@ -13,9 +13,22 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+import os
 import cv2
 import numpy as np
 import torch
+
+# 设置CUDA环境变量（解决LXC容器中的CUDA初始化问题）
+if 'CUDA_HOME' not in os.environ:
+    cuda_paths = ['/usr/local/cuda-13.0', '/usr/local/cuda', '/usr/local/cuda-12.0']
+    for cuda_path in cuda_paths:
+        if os.path.exists(cuda_path):
+            os.environ['CUDA_HOME'] = cuda_path
+            if 'LD_LIBRARY_PATH' not in os.environ:
+                os.environ['LD_LIBRARY_PATH'] = f'{cuda_path}/lib64'
+            elif cuda_path not in os.environ['LD_LIBRARY_PATH']:
+                os.environ['LD_LIBRARY_PATH'] = f'{cuda_path}/lib64:{os.environ["LD_LIBRARY_PATH"]}'
+            break
 
 # 修复torch.load的weights_only问题
 _original_torch_load = torch.load
@@ -48,9 +61,15 @@ def parse_args():
                         help='输出视频帧率（默认：使用输入视频帧率）')
     parser.add_argument('--skip-frames', type=int, default=0,
                         help='跳过的帧数（默认：0，处理所有帧）')
+    parser.add_argument('--frame-interval', type=int, default=1,
+                        help='每隔多少帧处理一帧（默认：1，处理所有帧；例如：10表示每隔10帧处理一帧）')
     parser.add_argument('--show', action='store_true', help='显示处理过程')
     parser.add_argument('--config-dir', type=str, default=None,
                         help='配置文件目录（默认：使用项目根目录）')
+    parser.add_argument('--score-thr', type=float, default=None,
+                        help='检测阈值（默认：使用模型配置，建议0.1-0.3，越低检测越多）')
+    parser.add_argument('--nms-thr', type=float, default=None,
+                        help='NMS阈值（默认：使用模型配置，建议0.3-0.5）')
     return parser.parse_args()
 
 
@@ -90,17 +109,30 @@ def add_text_label(img, text, position=(10, 30), font_scale=0.8, thickness=2):
 def main():
     args = parse_args()
     
+    # 将 gpu 转换为 cuda（PyTorch 使用 cuda 而不是 gpu）
+    device_input = args.device.lower()
+    if device_input == 'gpu':
+        device_input = 'cuda'
+    
     # 检查设备可用性，如果 CUDA 不可用则自动回退到 CPU
-    actual_device = args.device
-    if args.device == 'cuda':
-        if not torch.cuda.is_available():
-            print("⚠️  CUDA 不可用，自动切换到 CPU 模式")
-            actual_device = 'cpu'
-        elif torch.cuda.device_count() == 0:
-            print("⚠️  CUDA 设备数量为 0，自动切换到 CPU 模式")
+    actual_device = device_input
+    if device_input == 'cuda':
+        try:
+            if not torch.cuda.is_available():
+                print("⚠️  CUDA 不可用，自动切换到 CPU 模式")
+                actual_device = 'cpu'
+            elif torch.cuda.device_count() == 0:
+                print("⚠️  CUDA 设备数量为 0，自动切换到 CPU 模式")
+                actual_device = 'cpu'
+            else:
+                print(f"✓ 检测到 {torch.cuda.device_count()} 个 CUDA 设备")
+                print(f"  使用设备: {torch.cuda.get_device_name(0)}")
+        except Exception as e:
+            print(f"⚠️  CUDA 检测失败: {e}")
+            print("⚠️  自动切换到 CPU 模式")
             actual_device = 'cpu'
     
-    print(f"使用设备: {actual_device}")
+    print(f"最终使用设备: {actual_device}")
     
     # 获取项目根目录
     project_root = Path(__file__).parent.parent
@@ -116,8 +148,21 @@ def main():
     # 设置输出路径
     if args.output:
         output_path = Path(args.output)
+        # 如果输出路径是目录，自动生成文件名
+        if output_path.is_dir() or (not output_path.suffix):
+            # 确保目录存在
+            output_path.mkdir(parents=True, exist_ok=True)
+            # 在目录中生成输出文件名
+            output_path = output_path / f"{video_path.stem}_combined.mp4"
+        else:
+            # 如果是文件路径，确保父目录存在
+            output_path.parent.mkdir(parents=True, exist_ok=True)
     else:
         output_path = video_path.parent / f"{video_path.stem}_combined.mp4"
+    
+    # 确保输出路径有正确的扩展名
+    if not output_path.suffix:
+        output_path = output_path.with_suffix('.mp4')
     
     print("=" * 60)
     print("加载 Combined 模型...")
@@ -142,6 +187,30 @@ def main():
         model = init_model(str(config_path), str(checkpoint_path), device=actual_device)
         visualizer = PoseLocalVisualizer()
         visualizer.set_dataset_meta(model.dataset_meta)
+        
+        # 调整检测阈值（如果指定）
+        if args.score_thr is not None or args.nms_thr is not None:
+            if hasattr(model, 'head') and hasattr(model.head, 'test_cfg'):
+                test_cfg = model.head.test_cfg.copy()
+                if args.score_thr is not None:
+                    if 'score_thr' in test_cfg:
+                        old_thr = test_cfg['score_thr']
+                        test_cfg['score_thr'] = args.score_thr
+                        print(f"  调整检测阈值: {old_thr} -> {args.score_thr}")
+                    else:
+                        test_cfg['score_thr'] = args.score_thr
+                        print(f"  设置检测阈值: {args.score_thr}")
+                if args.nms_thr is not None:
+                    if 'nms_thr' in test_cfg:
+                        old_thr = test_cfg['nms_thr']
+                        test_cfg['nms_thr'] = args.nms_thr
+                        print(f"  调整NMS阈值: {old_thr} -> {args.nms_thr}")
+                    else:
+                        test_cfg['nms_thr'] = args.nms_thr
+                        print(f"  设置NMS阈值: {args.nms_thr}")
+                model.head.test_cfg = test_cfg
+                model.test_cfg = test_cfg
+        
         print(f"✓ 模型加载成功")
     except Exception as e:
         error_msg = str(e)
@@ -182,6 +251,10 @@ def main():
     print(f"  帧率: {fps} FPS")
     print(f"  总帧数: {total_frames}")
     print(f"  跳过帧数: {args.skip_frames}")
+    print(f"  帧间隔: {args.frame_interval} (每隔{args.frame_interval}帧处理一帧)")
+    if args.frame_interval > 1:
+        estimated_frames = (total_frames - args.skip_frames) // args.frame_interval
+        print(f"  预计处理帧数: ~{estimated_frames} 帧")
     
     # 创建视频写入器
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -209,8 +282,23 @@ def main():
             if frame_count <= args.skip_frames:
                 continue
             
+            # 每隔N帧处理一帧
+            if (frame_count - args.skip_frames - 1) % args.frame_interval != 0:
+                # 不处理这一帧，直接写入原帧到输出视频
+                out.write(frame)
+                continue
+            
             # 处理当前帧
+            # 确保图像数据类型正确（uint8）
+            if frame.dtype != np.uint8:
+                frame = frame.astype(np.uint8)
+            
+            # 转换为RGB（inference_bottomup期望RGB格式）
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # 确保图像连续存储（提高性能）
+            if not frame_rgb.flags['C_CONTIGUOUS']:
+                frame_rgb = np.ascontiguousarray(frame_rgb)
             
             try:
                 # 推理
@@ -310,7 +398,11 @@ def main():
     print(f"✓ 视频处理完成！")
     print(f"  输入视频: {video_path}")
     print(f"  输出视频: {output_path}")
-    print(f"  处理帧数: {processed_count}/{total_frames}")
+    print(f"  总帧数: {total_frames}")
+    print(f"  处理帧数: {processed_count} 帧")
+    if args.frame_interval > 1:
+        print(f"  帧间隔: 每隔 {args.frame_interval} 帧处理一帧")
+        print(f"  处理比例: {processed_count}/{total_frames} ({processed_count/total_frames*100:.1f}%)")
     print("=" * 60)
 
 
