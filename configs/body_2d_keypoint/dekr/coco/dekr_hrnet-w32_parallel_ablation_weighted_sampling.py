@@ -108,8 +108,8 @@ val_evaluator = dict(
     ann_file=data_root + '/annotations_id/person_keypoints_val_parallel.json',
     nms_mode='none',
     score_mode='keypoint',
-    # 注意：预测结果会自动保存到 work_dir/predictions/results.keypoints.json
-    # 无需手动设置outfile_prefix，除非需要自定义路径
+    # 设置outfile_prefix以保存keypoints预测结果，用于group_id分析
+    outfile_prefix='${work_dir}/predictions/results',
 )
 
 test_evaluator = val_evaluator

@@ -80,6 +80,31 @@ def merge_args(cfg, args):
         # use config filename as default work_dir if cfg.work_dir is None
         cfg.work_dir = osp.join('./work_dirs',
                                 osp.splitext(osp.basename(args.config))[0])
+    
+    # -------------------- set outfile_prefix for evaluators --------------------
+    # 为evaluator设置outfile_prefix以保存keypoints预测结果（用于group_id分析）
+    if cfg.work_dir:
+        predictions_dir = osp.join(cfg.work_dir, 'predictions')
+        os.makedirs(predictions_dir, exist_ok=True)
+        outfile_prefix = osp.join(predictions_dir, 'results')
+        
+        # 设置test_evaluator的outfile_prefix
+        if cfg.get('test_evaluator', None) is not None:
+            if isinstance(cfg.test_evaluator, dict):
+                cfg.test_evaluator['outfile_prefix'] = outfile_prefix
+            elif isinstance(cfg.test_evaluator, list):
+                for evaluator in cfg.test_evaluator:
+                    if isinstance(evaluator, dict) and evaluator.get('type') == 'CocoMetric':
+                        evaluator['outfile_prefix'] = outfile_prefix
+        
+        # 设置val_evaluator的outfile_prefix（如果存在）
+        if cfg.get('val_evaluator', None) is not None:
+            if isinstance(cfg.val_evaluator, dict):
+                cfg.val_evaluator['outfile_prefix'] = outfile_prefix
+            elif isinstance(cfg.val_evaluator, list):
+                for evaluator in cfg.val_evaluator:
+                    if isinstance(evaluator, dict) and evaluator.get('type') == 'CocoMetric':
+                        evaluator['outfile_prefix'] = outfile_prefix
 
     # -------------------- visualization --------------------
     if (args.show and not args.badcase) or (args.show_dir is not None):
