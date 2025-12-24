@@ -14,21 +14,33 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 import os
-import cv2
-import numpy as np
-import torch
+import sys
 
 # 设置CUDA环境变量（解决LXC容器中的CUDA初始化问题）
+# 必须在导入 torch 之前设置，否则 PyTorch 无法正确初始化 CUDA
 if 'CUDA_HOME' not in os.environ:
     cuda_paths = ['/usr/local/cuda-13.0', '/usr/local/cuda', '/usr/local/cuda-12.0']
     for cuda_path in cuda_paths:
         if os.path.exists(cuda_path):
             os.environ['CUDA_HOME'] = cuda_path
-            if 'LD_LIBRARY_PATH' not in os.environ:
-                os.environ['LD_LIBRARY_PATH'] = f'{cuda_path}/lib64'
-            elif cuda_path not in os.environ['LD_LIBRARY_PATH']:
-                os.environ['LD_LIBRARY_PATH'] = f'{cuda_path}/lib64:{os.environ["LD_LIBRARY_PATH"]}'
             break
+
+# 重要：清除 LD_LIBRARY_PATH 中的 CUDA 路径（如果存在）
+# 这会导致系统在 CUDA 目录中查找系统库（如 libpthread.so.0）而失败
+# PyTorch 已经链接到了 conda 环境中的 CUDA 库，不需要额外的 LD_LIBRARY_PATH 设置
+if 'LD_LIBRARY_PATH' in os.environ:
+    # 移除所有 CUDA 相关路径，保留其他路径
+    paths = os.environ['LD_LIBRARY_PATH'].split(':')
+    filtered_paths = [p for p in paths if p and '/usr/local/cuda' not in p and '/cuda' not in p]
+    if filtered_paths:
+        os.environ['LD_LIBRARY_PATH'] = ':'.join(filtered_paths)
+    else:
+        # 如果过滤后为空，删除该环境变量
+        del os.environ['LD_LIBRARY_PATH']
+
+import cv2
+import numpy as np
+import torch
 
 # 修复torch.load的weights_only问题
 _original_torch_load = torch.load

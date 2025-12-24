@@ -3,7 +3,12 @@
 """
 使用训练好的模型对图片进行推理
 """
+from pathlib import Path
+import sys
 
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 import argparse
 import cv2
 import numpy as np
@@ -56,28 +61,24 @@ def main():
     visualizer = PoseLocalVisualizer()
     visualizer.set_dataset_meta(model.dataset_meta)
     
-    print(f"\n开始推理 {len(args.images)} 张图片...")
+    total_images = len(args.images)
+    print(f"\n开始推理 {total_images} 张图片...")
     
-    for img_path in args.images:
+    for idx, img_path in enumerate(args.images, start=1):
         img_path = Path(img_path)
         if not img_path.exists():
-            print(f"⚠️  图片不存在: {img_path}")
+            print(f"[{idx}/{total_images}] ⚠️ 图片不存在: {img_path}")
             continue
-        
-        print(f"\n处理: {img_path.name}")
         
         # 推理
         results = inference_bottomup(model, str(img_path))
         
         if not results or len(results) == 0:
-            print(f"  ⚠️  未检测到姿态")
+            print(f"[{idx}/{total_images}] ⚠️ 未检测到姿态: {img_path.name}")
             continue
         
         # 获取预测结果
         data_sample = results[0]
-        pred_instances = data_sample.pred_instances
-        
-        print(f"  检测到 {len(pred_instances)} 个人体实例")
         
         # 可视化
         img = cv2.imread(str(img_path))
@@ -102,15 +103,10 @@ def main():
         # 保存结果
         output_path = output_dir / f"{img_path.stem}_result.jpg"
         cv2.imwrite(str(output_path), vis_img_bgr)
-        print(f"  ✓ 结果已保存: {output_path}")
         
-        # 打印关键点信息
-        for i, instance in enumerate(pred_instances):
-            keypoints = instance.keypoints
-            scores = instance.keypoint_scores
-            print(f"    实例 {i+1}: {len(keypoints)} 个关键点")
-            print(f"      平均置信度: {scores.mean():.3f}")
-            print(f"      最高置信度: {scores.max():.3f}")
+        # 简洁进度信息
+        if idx == 1 or idx == total_images or idx % 50 == 0:
+            print(f"[{idx}/{total_images}] 已处理: {img_path.name}")
         
         # 显示图片（如果指定）
         if args.show:
@@ -119,7 +115,7 @@ def main():
             cv2.waitKey(0)
             cv2.destroyAllWindows()
     
-    print(f"\n✓ 推理完成！结果保存在: {output_dir}")
+    print(f"\n✓ 推理完成！共处理 {total_images} 张图片，结果保存在: {output_dir}")
 
 
 if __name__ == '__main__':
