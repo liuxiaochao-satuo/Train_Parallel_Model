@@ -18,6 +18,10 @@ def parse_args():
                         help='从第几帧开始抽取（包含，默认：0）')
     parser.add_argument('--end-frame', type=int, default=-1,
                         help='到第几帧结束（包含，默认：-1，表示到视频结尾）')
+    parser.add_argument('--format', type=str, default='jpg', choices=['jpg', 'png'],
+                        help='保存格式（默认：jpg）')
+    parser.add_argument('--jpeg-quality', type=int, default=95,
+                        help='JPEG质量（1-100，默认：95，仅在format=jpg时有效）')
     return parser.parse_args()
 
 
@@ -68,14 +72,22 @@ def main():
 
         # 判断是否需要保存当前帧
         if (frame_idx - start_frame) % interval == 0:
-            # 文件名：videoName_frame_000001.jpg
-            frame_name = f'{video_path.stem}_frame_{frame_idx:06d}.jpg'
+            # 根据格式确定文件扩展名
+            ext = args.format.lower()
+            frame_name = f'{video_path.stem}_frame_{frame_idx:06d}.{ext}'
             save_path = output_dir / frame_name
-            cv2.imwrite(str(save_path), frame)
+            
+            # 根据格式保存
+            if ext == 'png':
+                cv2.imwrite(str(save_path), frame)  # PNG无损
+            else:  # jpg
+                cv2.imwrite(str(save_path), frame, 
+                           [cv2.IMWRITE_JPEG_QUALITY, args.jpeg_quality])
+            
             saved_count += 1
 
             if saved_count % 50 == 0:
-                print(f'  已保存 {saved_count} 帧（当前帧: {frame_idx}）')
+                print(f'  已保存 {saved_count} 帧（当前帧: {frame_idx}')
 
         frame_idx += 1
 
