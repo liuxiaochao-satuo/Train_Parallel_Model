@@ -41,8 +41,6 @@ if 'LD_LIBRARY_PATH' in os.environ:
 import cv2
 import numpy as np
 import torch
-import tempfile
-import shutil
 
 # 修复torch.load的weights_only问题
 _original_torch_load = torch.load
@@ -84,16 +82,6 @@ def parse_args():
                         help='检测阈值（默认：使用模型配置，建议0.1-0.3，越低检测越多）')
     parser.add_argument('--nms-thr', type=float, default=None,
                         help='NMS阈值（默认：使用模型配置，建议0.3-0.5）')
-    parser.add_argument('--smooth-alpha', type=float, default=None,
-                        help='时间平滑系数（0.0-1.0，默认：None，不使用平滑。值越大，前一帧影响越大。例如：0.7表示当前帧权重0.3，前一帧权重0.7）')
-    parser.add_argument('--use-temp-files', action='store_true',
-                        help='使用临时文件方式处理帧（匹配图片推理的处理流程，可能提高质量但会降低速度）')
-    parser.add_argument('--temp-dir', type=str, default=None,
-                        help='临时文件目录（默认：系统临时目录）')
-    parser.add_argument('--temp-format', type=str, default='png', choices=['png', 'jpg'],
-                        help='临时文件格式（默认：png，无损；jpg：有损但文件更小）')
-    parser.add_argument('--jpeg-quality', type=int, default=100,
-                        help='JPEG质量（1-100，默认：100，仅在--temp-format=jpg时有效）')
     return parser.parse_args()
 
 
@@ -292,24 +280,6 @@ def main():
     frame_count = 0
     processed_count = 0
     
-    # 临时文件处理相关
-    use_temp_files = args.use_temp_files
-    temp_dir = None
-    if use_temp_files:
-        if args.temp_dir:
-            temp_dir = Path(args.temp_dir)
-            temp_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            temp_dir = Path(tempfile.mkdtemp(prefix='mmpose_video_'))
-        temp_format = args.temp_format.lower()
-        print(f"✓ 使用临时文件模式（匹配图片推理流程）")
-        print(f"  临时目录: {temp_dir}")
-        print(f"  文件格式: {temp_format.upper()}")
-        if temp_format == 'jpg':
-            print(f"  JPEG质量: {args.jpeg_quality}")
-            if args.jpeg_quality < 95:
-                print(f"  ⚠️  警告: JPEG质量低于95可能导致明显质量损失，建议使用PNG格式")
-    
     print(f"\n开始逐帧处理...")
     
     try:
@@ -332,51 +302,24 @@ def main():
             
             # 处理当前帧
             try:
-                if use_temp_files:
-                    # 方式1: 临时保存为图片文件（匹配图片推理流程）
-                    if temp_format == 'png':
-                        temp_img_path = temp_dir / f"frame_{frame_count:06d}.png"
-                        # PNG格式：无损保存
-                        cv2.imwrite(str(temp_img_path), frame)
-                    else:  # jpg
-                        temp_img_path = temp_dir / f"frame_{frame_count:06d}.jpg"
-                        # JPEG格式：使用指定质量保存
-                        cv2.imwrite(str(temp_img_path), frame, 
-                                   [cv2.IMWRITE_JPEG_QUALITY, args.jpeg_quality])
-                    
-                    # 通过文件路径推理（完全匹配图片推理脚本）
-                    results = inference_bottomup(model, str(temp_img_path))
-                    
-                    # 清理临时文件（可选，如果空间足够可以保留用于调试）
-                    # temp_img_path.unlink()
-                else:
-                    # 方式2: 直接使用numpy数组（匹配demo_mmpose.py的处理方式）
-                    # 确保图像数据类型正确（uint8）
-                    if frame.dtype != np.uint8:
-                        frame = frame.astype(np.uint8)
-                    
-                    # 不进行颜色转换，直接使用BGR格式（匹配demo_mmpose.py）
-                    # 确保图像连续存储（提高性能）
-                    if not frame.flags['C_CONTIGUOUS']:
-                        frame = np.ascontiguousarray(frame)
-                    
-                    # 推理（直接传入BGR格式的numpy数组）
-                    results = inference_bottomup(model, frame)
+                # 确保图像数据类型正确（uint8）
+                if frame.dtype != np.uint8:
+                    frame = frame.astype(np.uint8)
+                
+                # 确保图像连续存储（提高性能）
+                if not frame.flags['C_CONTIGUOUS']:
+                    frame = np.ascontiguousarray(frame)
+                
+                # 推理（直接传入BGR格式的numpy数组，匹配demo_mmpose.py的处理方式）
+                results = inference_bottomup(model, frame)
                 
                 if results and len(results) > 0:
                     # 获取预测结果
                     data_sample = results[0]
                     pred_instances = data_sample.pred_instances
                     
-                    # 可视化 - 需要读取原始图像用于绘制
-                    # 注意：visualizer期望RGB格式，所以可视化时需要转换
-                    if use_temp_files:
-                        # 从临时文件读取图像用于可视化
-                        vis_img_bgr = cv2.imread(str(temp_img_path))
-                        vis_img_rgb = cv2.cvtColor(vis_img_bgr, cv2.COLOR_BGR2RGB)
-                    else:
-                        # 推理使用BGR，但可视化需要RGB
-                        vis_img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    # 可视化 - visualizer期望RGB格式，所以需要转换
+                    vis_img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     
                     # 可视化
                     visualizer.add_datasample(
@@ -462,17 +405,6 @@ def main():
         out.release()
         if args.show:
             cv2.destroyAllWindows()
-        
-        # 清理临时目录
-        if use_temp_files and temp_dir and temp_dir.exists():
-            if args.temp_dir is None:  # 只有自动创建的临时目录才删除
-                try:
-                    shutil.rmtree(temp_dir)
-                    print(f"\n✓ 已清理临时目录: {temp_dir}")
-                except Exception as e:
-                    print(f"\n⚠️  清理临时目录失败: {e}")
-            else:
-                print(f"\n⚠️  临时文件保留在: {temp_dir}（手动清理）")
     
     print("\n" + "=" * 60)
     print(f"✓ 视频处理完成！")
