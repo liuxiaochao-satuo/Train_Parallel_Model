@@ -16,7 +16,7 @@ if str(project_root) not in sys.path:
 import os
 import sys
 
-# 设置CUDA环境变量（解决LXC容器中的CUDA初始化问题）
+# 设置CUDA环境变量
 # 必须在导入 torch 之前设置，否则 PyTorch 无法正确初始化 CUDA
 if 'CUDA_HOME' not in os.environ:
     cuda_paths = ['/usr/local/cuda-13.0', '/usr/local/cuda', '/usr/local/cuda-12.0']
