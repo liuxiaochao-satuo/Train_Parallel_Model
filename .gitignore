@@ -1,0 +1,40 @@
+# 模型检查点文件
+*.pth
+*.pt
+*.ckpt
+*.h5
+*.pkl
+*.pb
+
+# checkpoints 目录
+checkpoints/
+*.pth.tar
+
+# 临时文件
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 环境配置
+.env
+.venv
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日志
+*.log
+
+# 数据文件（如果不需要版本控制）
+data/
+*.npy
+*.npz
+
