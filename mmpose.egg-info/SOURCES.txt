@@ -579,9 +579,12 @@ mmpose/.mim/demo/mmtracking_cfg/tracktor_faster-rcnn_r50_fpn_4e_mot17-private.py
 mmpose/.mim/tools/analyze_ablation_results.py
 mmpose/.mim/tools/analyze_group_id_performance.py
 mmpose/.mim/tools/analyze_group_id_simple.py
+mmpose/.mim/tools/compare_inference_methods.py
+mmpose/.mim/tools/diagnose_video_frame_quality.py
 mmpose/.mim/tools/dist_test.sh
 mmpose/.mim/tools/dist_train.sh
 mmpose/.mim/tools/evaluate_by_group_id.py
+mmpose/.mim/tools/extract_frames.py
 mmpose/.mim/tools/generate_group_id_mapping.py
 mmpose/.mim/tools/inference_comparison.py
 mmpose/.mim/tools/inference_images.py
@@ -591,6 +594,8 @@ mmpose/.mim/tools/plot_ablation_curves.py
 mmpose/.mim/tools/run_ablation_experiments.sh
 mmpose/.mim/tools/slurm_test.sh
 mmpose/.mim/tools/slurm_train.sh
+mmpose/.mim/tools/start_file_server.py
+mmpose/.mim/tools/sync_outputs_to_local.sh
 mmpose/.mim/tools/sync_results.sh
 mmpose/.mim/tools/test.py
 mmpose/.mim/tools/test_baseline.py
