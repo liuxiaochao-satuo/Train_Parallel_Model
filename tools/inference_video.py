@@ -57,7 +57,7 @@ from mmpose.visualization import PoseLocalVisualizer
 # Combined 方法的配置
 COMBINED_CONFIG = {
     'config': 'configs/body_2d_keypoint/dekr/coco/dekr_hrnet-w32_parallel_ablation_combined.py',
-    'checkpoint': '/data/lxc/outputs/train_parallel_model/ablation_experiments/combined/best_coco_AP_epoch_110.pth',
+    'checkpoint': 'checkpoints/best_coco_AP_epoch_110.pth',
     'name': 'Combined (Loss Weight + Weighted Sampling)'
 }
 
